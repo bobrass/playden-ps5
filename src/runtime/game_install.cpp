@@ -562,7 +562,7 @@ RepositoryResult<RuntimeInstall> RuntimeInstallRepository::Reserve(const Reserve
     }
   }
   if (candidate.title_id.empty())
-    return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kTitleVariantsExhausted, "no supported native title variant is available");
+    return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kTitleVariantsExhausted, "no free native title ID: " + std::to_string(request.kit_title_variants.size()) + " kit candidate(s) supplied; availability or reservation checks rejected them");
   if (!ValidRecord(candidate))
     return RepositoryResult<RuntimeInstall>::Failure(RepositoryError::kInvalidRecord, "runtime install request is invalid");
   installs_.emplace(candidate.install_id, candidate);
