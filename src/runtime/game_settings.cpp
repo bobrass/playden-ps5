@@ -7,6 +7,7 @@
 #include "steam/backend/json.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <atomic>
 #include <cerrno>
@@ -2832,7 +2833,80 @@ std::optional<std::string> RegistryData(const std::string& text, const std::stri
   return data;
 }
 
+using VcRuntimeVersion = std::array<std::uint32_t, 4>;
+constexpr VcRuntimeVersion kBuiltinVcRuntimeVersion = {14, 50, 35719, 0};
+
+bool ParseQuotedVersion(const std::string& data, VcRuntimeVersion* version) {
+  if (data.size() < 2 || data.front() != '"' || data.back() != '"') return false;
+  const std::string_view text(data.data() + 1, data.size() - 2);
+  std::size_t start = 0;
+  for (std::size_t component = 0; component < version->size(); ++component) {
+    const auto end = component + 1 == version->size() ? text.size() : text.find('.', start);
+    if (end == std::string_view::npos || end == start) return false;
+    const auto parsed = std::from_chars(text.data() + start, text.data() + end, (*version)[component]);
+    if (parsed.ec != std::errc() || parsed.ptr != text.data() + end) return false;
+    if (component + 1 != version->size()) {
+      if (end + 1 >= text.size() || text[end] != '.') return false;
+      start = end + 1;
+    }
+  }
+  return true;
+}
+
+std::vector<RegistryValue> VcRuntimeRegistryValues(const std::string& architecture) {
+  const auto key = "Software\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\" + architecture;
+  const auto dword = [](std::uint32_t value) {
+    char text[16];
+    std::snprintf(text, sizeof(text), "dword:%08x", value);
+    return std::string(text);
+  };
+  return {{key, "Bld", dword(kBuiltinVcRuntimeVersion[2])},
+          {key, "Installed", dword(1)},
+          {key, "Major", dword(kBuiltinVcRuntimeVersion[0])},
+          {key, "Minor", dword(kBuiltinVcRuntimeVersion[1])},
+          {key, "Rbld", dword(kBuiltinVcRuntimeVersion[3])},
+          {key, "Version", "\"14.50.35719.0\""}};
+}
+
 }  // namespace
+
+bool EnsureBottleVcRuntimeVersion(const std::string& prefix_dir, std::int64_t unix_time, bool* changed,
+                                  std::string* reason) {
+  const auto fail = [&](std::string why) {
+    if (reason) *reason = std::move(why);
+    return false;
+  };
+  if (changed) *changed = false;
+  constexpr std::size_t kMaxRegistryBytes = 32u * 1024u * 1024u;
+  auto bottle = ManagedDirectory::Open(prefix_dir, DirectoryPolicy::kPrivateTraversable);
+  if (!bottle) return errno == ENOENT ? true : fail("cannot open the bottle");
+  std::string original;
+  const auto state = ReadRegularAt(*bottle, "system.reg", kMaxRegistryBytes, &original, nullptr, true);
+  if (state == RelativeRead::kMissing) return true;  // the bottle comes later
+  if (state != RelativeRead::kPresent) return fail("cannot read the bottle's system.reg");
+
+  std::vector<RegistryValue> values;
+  for (const char* architecture : {"x64", "x86"}) {
+    const auto key = "Software\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\" +
+                     std::string(architecture);
+    const auto current = RegistryData(original, key, "Version");
+    if (current) {
+      VcRuntimeVersion version{};
+      if (!ParseQuotedVersion(*current, &version))
+        return fail(std::string("the bottle's ") + architecture + " VC runtime version is malformed");
+      if (version > kBuiltinVcRuntimeVersion) continue;  // never lower a newer installed runtime
+    }
+    const auto entries = VcRuntimeRegistryValues(architecture);
+    values.insert(values.end(), entries.begin(), entries.end());
+  }
+  if (values.empty()) return true;
+  std::string intended = original;
+  if (!ApplyRegistryValues(&intended, values, unix_time, reason)) return false;
+  if (intended == original) return true;
+  if (!ApplyRegistryFileValues(values, prefix_dir, unix_time, reason, "system.reg")) return false;
+  if (changed) *changed = true;
+  return true;
+}
 
 bool PointBottleAtKitMono(const std::string& template_dir, const std::string& prefix_dir, std::int64_t unix_time,
                           bool* changed, std::string* reason) {

@@ -606,6 +606,7 @@ class RuntimeHost {
   std::string Direct3D12Step(Composition& composition, const GameFiles& files);
   void KitMonoStep(Composition& composition, const runtime::RuntimeInstall& record, const char* when);  // never stops the start
   std::string BottleEnvironmentStep(const GameFiles& files);
+  void VcRuntimeRegistryStep(const GameFiles& files);  // best-effort compatibility metadata repair
   std::string RecipeRegistryStep(const GameFiles& files);
   std::string DotnetHeapStep(const GameFiles& files);
   void MfcStep(const GameFiles& files);  // an upgrade: never stops the start

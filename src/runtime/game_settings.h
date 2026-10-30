@@ -405,6 +405,12 @@ bool ApplyRegistrySettings(const EffectiveSettings& settings, const std::string&
 bool ApplyBottleRegistryValues(const std::vector<RegistryValue>& values, const std::string& prefix_dir,
                                std::int64_t unix_time, const std::string& hive, std::string* reason);
 
+// Wine's template may advertise an older VC runtime than the CRT DLLs bundled with the kit. Raise the
+// x86/x64 system.reg version to the kit's builtin floor, preserving any higher version already present.
+// The bottle must be stopped; writes keep a system.reg.playden-backup. changed is optional.
+bool EnsureBottleVcRuntimeVersion(const std::string& prefix_dir, std::int64_t unix_time, bool* changed,
+                                  std::string* reason);
+
 // Merge the staged kit media values into a stopped bottle, and copy the kit's winegstreamer.dll into its system32
 // and syswow64 when missing (Wine finds a builtin only through that file). Older kits without the file are unchanged.
 bool ApplyMediaRegistry(const std::string& runtime_dir, const std::string& prefix_dir,

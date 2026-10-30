@@ -1075,6 +1075,18 @@ std::string RuntimeHost::RecipeRegistryStep(const GameFiles& files) {
   return {};
 }
 
+// Wine's template registry advertises 14.42.34433.0, while this kit bundles the VC CRT at 14.50.35719.0.
+// Unreal launchers check that metadata before loading the CRT DLLs, so keep the bottle's system.reg in sync.
+// This is a best-effort compatibility fix: a malformed or unwritable registry is logged, but does not block
+// games that do not use the VC launcher check.
+void RuntimeHost::VcRuntimeRegistryStep(const GameFiles& files) {
+  bool changed = false;
+  std::string reason;
+  const bool ok = rt::EnsureBottleVcRuntimeVersion(files.prefix, config_.unix_time(), &changed, &reason);
+  Log("vc runtime registry app=" + std::to_string(files.record.runtime_number) +
+      (ok ? (changed ? " updated=14.50.35719.0" : " current=1") : " failed=" + reason));
+}
+
 // Generic step: self-contained .NET games reserve more address space than the console grants unless their
 // garbage collector is given a heap limit (runtime/dotnet_heap.h).
 std::string RuntimeHost::DotnetHeapStep(const GameFiles& files) {
@@ -1131,6 +1143,7 @@ std::string RuntimeHost::ApplyPreparationSteps(Composition& c, const rt::Runtime
   if (auto refused = BottleEnvironmentStep(files); !refused.empty()) return refused;
   if (auto refused = InstallScriptsStep(files); !refused.empty()) return refused;
   MfcStep(files);
+  VcRuntimeRegistryStep(files);
   if (auto refused = RecipeRegistryStep(files); !refused.empty()) return refused;
   return DotnetHeapStep(files);
 }
